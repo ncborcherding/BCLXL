@@ -1,0 +1,26 @@
+Gene symbol	Name	Group
+BCL2	BCL2 apoptosis regulator	Anti-apoptotic 
+BCL2L1	BCL2 like 1	Anti-apoptotic 
+BCL2L2	BCL2 like 2	Anti-apoptotic 
+MCL1	"MCL1 apoptosis regulator, BCL2 family member"	Anti-apoptotic 
+BCL2A1	BCL2 related protein A1	Anti-apoptotic 
+BCL2L12	BCL2 like 12	Anti-apoptotic 
+BAX	"BCL2 associated X, apoptosis regulator"	pro-apoptotic multidomain
+BAK1	BCL2 antagonist/killer 1	pro-apoptotic multidomain
+BOK	BCL2 family apoptosis regulator BOK	pro-apoptotic multidomain
+BCL2L10	BCL2 like 10	pro-apoptotic multidomain
+BCL2L13	BCL2 like 13	pro-apoptotic multidomain
+BCL2L14	BCL2 like 14	pro-apoptotic multidomain
+BCL2L15	BCL2 like 15	pro-apoptotic multidomain
+BNIP2	BCL2 interacting protein 2	pro-apoptotic multidomain
+BAD	BCL2 associated agonist of cell death	pro-apoptotic BH3 only
+BBC3	BCL2 binding component 3	pro-apoptotic BH3 only
+BCL2L11	BCL2 like 11	pro-apoptotic BH3 only
+BID	BH3 interacting domain death agonist	pro-apoptotic BH3 only
+BIK	BCL2 interacting killer	pro-apoptotic BH3 only
+BMF	Bcl2 modifying factor	pro-apoptotic BH3 only
+BNIP1	BCL2 interacting protein 1	pro-apoptotic BH3 only
+BNIP3	BCL2 interacting protein 3	pro-apoptotic BH3 only
+RTL10	retrotransposon Gag like 10	pro-apoptotic BH3 only
+HRK	"harakiri, BCL2 interacting protein"	pro-apoptotic BH3 only
+PMAIP1	phorbol-12-myristate-13-acetate-induced protein 1	pro-apoptotic BH3 only

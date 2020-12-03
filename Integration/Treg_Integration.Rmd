@@ -1,0 +1,306 @@
+---
+title: "Treg_Integration"
+author: "Nick Borcherding"
+date: "6/21/2020"
+output: html_document
+---
+
+First step is loading the data
+```{r}
+HCC_RNA <- read.delim("HCC_Treg_expression.txt", check.names = F)
+HCC_RNA <- HCC_RNA[-c(1:19),]
+HCC_meta <- read.delim("HCC_Treg_meta.data.txt")
+ccRCC_RNA <- read.delim("C14_expression.txt")
+ccRCC_meta <- read.delim("C14_meta.data.txt")
+```
+
+```{r}
+HCC_patients <- unique(HCC_meta$Patient)
+ccRCC_patients <- unique(ccRCC_meta$Patient)
+```
+
+```{r}
+ccRCC.list <- list()
+for (i in seq_along(ccRCC_patients)) {
+    sub <- subset(ccRCC_meta, Patient == ccRCC_patients[i])
+    cellnames <- rownames(sub)
+    tmp <- ccRCC_RNA[,colnames(ccRCC_RNA) %in% cellnames]
+    ccRCC.list[[i]] <- tmp
+}
+names(ccRCC.list) <- paste0("Patient",1:3)
+```
+
+```{r}
+
+HCC.list <- list()
+for (i in seq_along(HCC_patients)) {
+    sub <- subset(HCC_meta, Patient == HCC_patients[i])
+    cellnames <- rownames(sub)
+    tmp <- HCC_RNA[,colnames(HCC_RNA) %in% cellnames]
+    HCC.list[[i]] <- tmp
+}
+names(HCC.list) <- HCC_patients
+
+full.list <- append(ccRCC.list, HCC.list)
+```
+
+```{r}
+for (i in seq_along(full.list)) {
+    full.list[[i]] <- CreateSeuratObject(full.list[[i]])
+}
+```
+
+```{r eval=FALSE}
+options(future.globals.maxSize= 2621440000) #Need this to transfer transformation so increasing from 500 Mb to 2.5 Gb - math: 2500*1024^2 bytes
+
+
+for (i in 1:length(full.list)) {
+    full.list[[i]] <-  suppressMessages(SCTransform(full.list[[i]], verbose = FALSE))
+}
+
+select.features <- SelectIntegrationFeatures(object.list = full.list, nfeatures = 3000)
+full.list <- PrepSCTIntegration(object.list = full.list, anchor.features = select.features, 
+    verbose = FALSE)
+
+
+anchors <- FindIntegrationAnchors(object.list = full.list, normalization.method = "SCT", 
+    anchor.features = select.features, verbose = FALSE, k.filter = 50)
+integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", 
+    verbose = FALSE)
+rm(list)
+rm(anchors)
+```
+
+The UMAP visualizations can be difficult to interpret, before I select my parameters, I like to run a long loops to test the various principal components and dimensions to select. This is not particularly elegant, but is better than assuming set dimensions of the vignettes. I am not going to include the folder below in the github repo - its about 800 graphs and not helpful beyond the initial steps. The *DataExplore* folder is where I will place the evaluation figures, but for the purposes of this analysis, I am not going to include the folder in the Git hub repo, because it is largely a waste of space.
+
+```{r eval=FALSE}
+dir.create("DataExplore/")
+dir.create("DataExplore/UMAP")
+for (i in c(10,15,20,25,30,35,40)) {
+    
+    integrated2 <- ScaleData(object = integrated, verbose = FALSE)
+    integrated2 <- RunPCA(object = integrated2, npcs = 40, verbose = FALSE)
+    integrated2 <- RunUMAP(object = integrated2, reduction = "pca", 
+        dims = 1:i) #dimensions for  UMAP
+    for (x in c(10,15,20,25,30,35,40)) { #Dimensions for neighbors
+       integrated2 <- FindNeighbors(object = integrated2, dims = 1:x)
+       for(y in c(0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1)) { #Resolution
+           integrated2 <- FindClusters(object = integrated2, resolution = y, force.recalc=T)
+           plot1 <- DimPlot(integrated2, reduction = "umap", pt.size = 0.5, group.by = "orig.ident")
+           ggsave(path = "DataExplore/UMAP", file = paste("Myo_clusters_UMAP", i, "_Neighbors", x, "_resolution", y, "_OrigIdent.eps", sep=""), plot1, width=4.25, height=3)
+           plot2 <- DimPlot(object = integrated2, reduction = 'umap', label = T) + NoLegend()
+            ggsave(path = "DataExplore/UMAP", file = paste("Myo_clusters_UMAP", i, "_Neighbors", x, "_resolution", y, "_clusters.eps", sep=""), plot2, width=3.5, height=3)
+       }
+    }
+}
+rm(integrated2)
+```
+
+## Selecting Parameters
+
+Going over output from above - it looks like *UMAP30_Neighbors40_resolutio0.6* has good dispersion between cell populations and clusters. 
+
+For me, when evaluating the UMAPs - I am looking for clean separations between cell types (we are assuming a lot of different cell types for the purposes of the experimental set up), but also between clusters. The last thing I check during the evaluations is the overlap of different experimental runs - which this version is very good across all clusters, with the exceptions of Cluster 12 and S1 (a little off), but acceptable.
+
+```{r eval=FALSE}
+integrated <- ScaleData(object = integrated, verbose = FALSE)
+integrated <- RunPCA(object = integrated, npcs = 40, verbose = FALSE)
+integrated <- RunUMAP(object = integrated, reduction = "pca", 
+    dims = 1:30)
+integrated <- FindNeighbors(object = integrated, dims = 1:40, force.recalc = T)
+integrated <- FindClusters(object = integrated, resolution = 0.4, force.recalc=T)
+
+
+
+
+DimPlot(object = integrated, reduction = 'umap', label = T, ) + NoLegend()
+
+DimPlot(object = integrated, reduction = 'umap', group.by = "orig.ident") 
+
+```
+
+
+```{r}
+submeta1 <- ccRCC_meta[,c("Patient","Type")]
+submeta2 <- HCC_meta[,c("Patient","sampleType")]
+submeta1 <- submeta1 %>% mutate(sampleType = ifelse(Type == 1, "TTR", "PTR"))
+rownames(submeta1) <- rownames(ccRCC_meta)
+
+masterMeta <- rbind.data.frame(submeta1,submeta2)
+integrated <- AddMetaData(integrated, masterMeta)
+```
+
+```{r}
+DimPlot(object = integrated, reduction = 'umap', group.by = "Patient") 
+DimPlot(object = integrated, reduction = 'umap', group.by = "sampleType") 
+
+final <- subset(integrated, sampleType != "JTH")
+final <- subset(final, sampleType != "PTH")
+final <- subset(final, sampleType != "NTH")
+final <- subset(final, sampleType != "TTH")
+final <- subset(final, sampleType != "PTC")
+
+final@meta.data$Cancer <- "HCC"
+final@meta.data$Cancer <- ifelse(final@meta.data$Patient %in% ccRCC_patients, "ccRCC", "HCC")
+
+DimPlot(object = final, reduction = 'umap', label = T) + NoLegend()
+ggsave("Cluster_UMAP.eps", height=3, width=3.65)
+DimPlot(object = final, reduction = 'umap', group.by = "Patient") 
+ggsave("Patient_UMAP.eps", height=3, width=4)
+DimPlot(object = final, reduction = 'umap', group.by = "sampleType") 
+ggsave("SampleType_UMAP.eps", height=3, width=3.85)
+DimPlot(object = final, reduction = 'umap', group.by = "Cancer") 
+ggsave("CancerType_UMAP.eps", height=3, width=4.1)
+```
+
+```{r}
+freq_table <- table(final$sampleType, final@active.ident)
+
+for (i in 1:nrow(freq_table)) {
+    freq_table[i,] <- freq_table[i,]/sum(freq_table[i,])
+}
+freq_table <- reshape2::melt(freq_table)
+
+ggplot(freq_table, aes(x=Var2, y=value, fill = Var1)) + 
+    geom_bar(stat="identity", position = "fill") + 
+    theme_classic() + 
+    ylab("Relative Proportion")
+ggsave("Cluster_relativeProportion.pdf", height=2, width=3.25)
+
+freq_table <- table(final$sampleType, final@active.ident)
+freq_table <- reshape2::melt(freq_table)
+
+ggplot(freq_table, aes(x=Var2, y=value, fill = Var1)) + 
+    geom_bar(stat="identity", position = "fill") + 
+    theme_classic() + 
+    ylab("Relative Proportion")
+ggsave("Cluster_Proportion.pdf", height=2, width=3.25)
+```
+
+```{r}
+final <- NormalizeData(final, assay = "RNA")
+```
+
+```{r}
+
+All.markers <- FindAllMarkers(final, assay = "RNA", pseudocount.use = 0.1, only.pos = T) 
+write.table(All.markers, file = "FindAllMarkers_output.txt", col.names=NA, sep="\t",append=F)
+```
+
+```{r setup, include=FALSE}
+colorblind_vector <- colorRampPalette(c("#FF4B20", "#FFB433", "#C6FDEC", "#7AC5FF", "#0348A6"))
+```
+
+```{r}
+top10 <- All.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
+DotPlot(final, features = unique(top10$gene), assay = "RNA") +
+    scale_color_gradientn(colors = rev(colorblind_vector(11))) + 
+    guides(color = F, size = F) +
+    scale_size(range = c(0.5,3.5))+
+    coord_flip() + 
+    theme(axis.text.x = element_text(angle = 90, hjust=1)) 
+ggsave("Topmarkers.pdf", height=8, width=4)
+```
+
+```{r}
+genes <- read.delim("genes.txt")
+genes <- genes$Gene.symbol
+
+suppressPackageStartupMessages(library(schex))
+final <- make_hexbin(final, 25, dimension_reduction = "UMAP")
+```
+
+```{r}
+for (i in seq_along(genes)) {
+    plot <- plot_hexbin_feature(final, feature = genes[i], type = "counts", action = "prop_0")+ 
+             guides(fill=F, color = F) + 
+                scale_fill_gradientn(colors = rev(colorblind_vector(13))) 
+        ggsave(file = paste0(genes[i], "_prop.pdf"), plot, height=3, width=3.8)
+}
+```
+
+```{r}
+DefaultAssay(final) <- "RNA"
+for (i in seq_along(genes)) {
+plot <- FeaturePlot(final, features = genes[i], min.cutoff = "q10", max.cutoff = "q90") + 
+    scale_color_gradientn(colors = rev(colorblind_vector(13)))
+ggsave(paste0("ExpressionPlot_", genes[i], ".eps"), height=3, width=4.1)
+}
+
+
+```
+
+```{r}
+VlnPlot(final, features = "BCL2L1", pt.size = 0) + NoLegend()
+ggsave("BCL2L1_VlnPlot.pdf", height=2, width=3)
+```
+
+```{r}
+cc.genes <- Seurat::cc.genes.updated.2019
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+```
+
+Now we can perform cell cycle scoring with the genes. For now, I am not going to regress using the assingments or save the integrated object with the calculations.
+
+```{r}
+DefaultAssay(final) <- "RNA"
+cellCycle <- CellCycleScoring(final, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+```
+
+Like above with the contribution by condition (**Type**), we can now look at the phases assignments by cluster and condition. We do not need to scale if we seperate **Type** into seperate bar graphs.
+
+```{r}
+
+freq_table <- cellCycle[[]]
+freq_table <- freq_table[,c("old.ident", "Phase")]
+freq_table <- subset(freq_table, Phase != "Undecided") #removing undecided phases
+freq_table <- freq_table %>%
+    group_by(old.ident, Phase) %>%
+    summarise(n = n())
+
+freq_table$Phase <- factor(freq_table$Phase, levels = c("G1", "S", "G2M")) #ordering phases
+ggplot(freq_table, aes(x=old.ident, y=n, fill=Phase)) + 
+  geom_bar(stat="identity", position="fill", color="black", lwd=0.25) + 
+  theme(axis.title.x = element_blank()) + 
+   scale_fill_manual(values=colorblind_vector(3)) + 
+  theme_classic()
+ggsave("CellCycle_byCluster.pdf", height=4, width=6)
+```
+
+```{r}
+library(slingshot)
+sce <- as.SingleCellExperiment(final) 
+
+sds <- slingshot(Embeddings(final, "umap"), clusterLabels = final@active.ident, allow.breaks = TRUE, stretch = 0, reducedDim = "UMAP") #Calcualting the trajectory
+```
+
+```{r}
+library(scales)
+#Making plots more siminmar to ggplot outputs of Seurat
+cell_pal <- function(cell_vars, pal_fun,...) {
+  if (is.numeric(cell_vars)) {
+    pal <- pal_fun(100, ...)
+    return(pal[cut(cell_vars, breaks = 100)])
+  } else {
+    categories <- sort(unique(cell_vars))
+    pal <- setNames(pal_fun(length(categories), ...), categories)
+    return(pal[cell_vars])
+  }
+}
+#We need color palettes Leiden clusters. These would be the same colors seen in the Seurat plots.
+
+cell_colors_clust <- cell_pal(final@active.ident, hue_pal())
+
+pdf("slingShot_Trajectory.pdf", height=4, width=4)
+plot(reducedDim(sds), col = cell_colors_clust, pch = 16, cex = 0.25)
+lines(sds, lwd = 2, type = 'lineages', col = 'black')
+dev.off()
+
+plot(reducedDim(sds), col = cell_colors_clust, pch = 16, cex = 0.5)
+lines(sds, lwd = 2, col = 'black')
+
+plot(reducedDim(sds), col = sds@adjacency, pch = 16, cex = 0.25)
+lines(sds, lwd = 2, type = 'lineages', col = 'black')
+dev.off()
+```
